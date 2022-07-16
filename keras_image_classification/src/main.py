@@ -37,6 +37,7 @@ def parse_args():
 def load_data(args):
     labels = sorted(os.listdir(args.train))
     n_labels = len(labels)
+
     x_train = []
     y_train = []
     x_test = []
@@ -48,24 +49,26 @@ def load_data(args):
         trainfiles = filter(
             lambda s: s.endswith(".png"),
             os.listdir(os.path.join(args.train, label_str))
-        )
+        )    
+
         for filename in trainfiles:
-            # Can't just use tf.keras.preprocessing.image.load_img(), because it doesn't close its
-            # file handles! So get "Too many open files" error... Grr
+            # Can't just use tf.keras.preprocessing.image.load_img(), because it doesn't close its file
+            # handles! So get "Too many open files" error... Grr
             with open(os.path.join(args.train, label_str, filename), "rb") as imgfile:
                 x_train.append(
-                    # Squeeze (drop) that extra channel dimension, to be consistent with prev
-                    # format:
+                    # Squeeze (drop) that extra channel dimension, to be consistent with prev format:
                     np.squeeze(tf.keras.preprocessing.image.img_to_array(
                         Image.open(imgfile)
                     ))
                 )
                 y_train.append(ix_label)
+
         # Repeat for test data:
         testfiles = filter(
             lambda s: s.endswith(".png"),
             os.listdir(os.path.join(args.test, label_str))
         )
+
         for filename in testfiles:
             with open(os.path.join(args.test, label_str, filename), "rb") as imgfile:
                 x_test.append(
@@ -74,6 +77,9 @@ def load_data(args):
                     ))
                 )
                 y_test.append(ix_label)
+    print()
+
+
     print("Shuffling trainset...")
     train_shuffled = [(x_train[ix], y_train[ix]) for ix in range(len(y_train))]
     np.random.shuffle(train_shuffled)
@@ -90,17 +96,20 @@ def load_data(args):
     y_test = np.array([datum[1] for datum in test_shuffled])
     test_shuffled = None
 
-    if K.image_data_format() == "channels_first":
-        x_train = np.expand_dims(x_train, 1)
-        x_test = np.expand_dims(x_train, 1)
-    else:
-        x_train = np.expand_dims(x_train, len(x_train.shape))
-        x_test = np.expand_dims(x_test, len(x_test.shape))
+    print("Done!")
 
-    x_train = x_train.astype("float32")
-    x_test = x_test.astype("float32")
-    x_train /= 255
-    x_test /= 255
+    print(f"training data set shape: {x_train.shape}")
+    print(K.image_data_format())
+
+    if 'channels_last' != K.image_data_format():
+        print("use 'channels_last' data format...")
+        K.set_image_data_format('channels_last')
+
+    # convert dataset matrix to be float32 and normalize them by 255
+    # x_train = x_train.astype("float32")
+    # x_test = x_test.astype("float32")
+    x_train /= 255.0
+    x_test /= 255.0
 
     input_shape = x_train.shape[1:]
 
@@ -120,18 +129,25 @@ def load_data(args):
 
 def build_model(input_shape, n_labels):
     model = Sequential()
-    model.add(Conv2D(32, kernel_size=(3, 3), activation="relu", input_shape=input_shape))
-    model.add(Conv2D(64, (3, 3), activation="relu"))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
+
+    model.add(Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_uniform', padding='same', input_shape=input_shape))
+    model.add(Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_uniform', padding='same'))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_uniform', padding='same'))
+    model.add(Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_uniform', padding='same'))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Conv2D(128, (3, 3), activation='relu', kernel_initializer='he_uniform', padding='same'))
+    model.add(Conv2D(128, (3, 3), activation='relu', kernel_initializer='he_uniform', padding='same'))
+    model.add(MaxPooling2D((2, 2)))
     model.add(Dropout(0.25))
     model.add(Flatten())
-    model.add(Dense(128, activation="relu"))
+    model.add(Dense(128, activation='relu', kernel_initializer='he_uniform'))
     model.add(Dropout(0.5))
-    model.add(Dense(n_labels, activation="softmax"))
+    model.add(Dense(n_labels, activation='softmax'))
 
     model.compile(
         loss=tf.keras.losses.categorical_crossentropy,
-        optimizer=tf.keras.optimizers.Adadelta(),
+        optimizer=tf.keras.optimizers.Adam(),
         metrics=["accuracy"]
     )
 
@@ -143,32 +159,27 @@ if __name__ == "__main__":
     args, _ = parse_args()
     print(args)
 
-    # TODO: Load images from container filesystem into training / test data sets?
+    print("Loading dataset...")
     x_train, y_train, x_test, y_test, input_shape, n_labels = load_data(args)
 
-    # TODO: Create the Keras model?
+    print("Building a model...")
     model = build_model(input_shape, n_labels)
 
-    # Fit the Keras model:
+    # Fit the Keras model
+    print("Fitting the data...")
     model.fit(
         x_train, y_train,
         batch_size=args.batch_size,
         epochs=args.epochs,
         shuffle=True,
-        verbose=2, # Hint: You might prefer =2 for running in SageMaker!
+        verbose=2, 
         validation_data=(x_test, y_test)
     )
 
-    # TODO: Evaluate model quality and log metrics?
+    # Evaluate model quality and log metrics
     score = model.evaluate(x_test, y_test, verbose=0)
     print(f"Test loss: {score[0]}")
     print(f"Test accuracy: {score[1]}")
 
-    # TODO: Save outputs (trained model) to specified folder?
-    sess = K.get_session()
-    tf.saved_model.simple_save(
-        sess,
-        os.path.join(args.model_dir, "model/1"),
-        inputs={ "inputs": model.input },
-        outputs={ t.name: t for t in model.outputs },
-    )
+    # Save outputs (trained model) to specified folder?
+    model.save(os.path.join(args.model_dir, "model/1"))
