@@ -1,8 +1,4 @@
 """CNN-based image classification on SageMaker with TensorFlow and Keras
-
-REFERENCE SOLUTION IMPLEMENTATION
-
-(Complete me with help from Local Notebook.ipynb, and the NLP example's src/main.py!)
 """
 
 # Dependencies:
@@ -31,8 +27,6 @@ def parse_args():
     parser.add_argument("--test", type=str, default=os.environ.get("SM_CHANNEL_TEST"))
 
     return parser.parse_known_args()
-
-# TODO: Other function definitions, if you'd like to break up your code into functions?
 
 def load_data(args):
     labels = sorted(os.listdir(args.train))
